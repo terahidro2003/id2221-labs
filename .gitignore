@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+
+# Spark / Delta
+spark-warehouse/
+metastore_db/
+derby.log
+*.crc
+
+# Data lake (local)
+data/raw/
+data/lake/
+data/checkpoints/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# pytest
+.pytest_cache/
+.coverage
+htmlcov/
