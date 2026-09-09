@@ -1,0 +1,35 @@
+integer:
+  - ByteType
+  - ShortType
+  - IntegerType
+  - LongType
+long:
+  - ByteType
+  - ShortType
+  - IntegerType
+  - LongType
+double:
+  - FloatType
+  - DoubleType
+  - DecimalType
+  - IntegerType
+  - LongType
+string:
+  - StringType
+  - IntegerType
+  - LongType
+  - DoubleType
+  - FloatType
+  - TimestampType
+  - DateType
+  - BooleanType
+timestamp:
+  - TimestampType
+  - TimestampNTZType
+  - StringType
+  - DateType
+  - LongType
+date:
+  - DateType
+  - TimestampType
+  - StringType
