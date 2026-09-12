@@ -1,0 +1,47 @@
+@startuml
+title Architecture.
+
+skinparam componentStyle rectangle
+skinparam shadowing false
+
+cloud "External data sources" as sources {
+  artifact "Taxi trips\nParquet" as trips
+  artifact "Weather\nCSV" as weather
+  artifact "Air quality\nCSV" as air
+  artifact "Taxi zones\nCSV" as zones
+}
+
+package "Data platform" {
+  component "Ingestion\nDownload, schema validation,\nand raw data organization" as ingestion
+
+  package "Raw data" as raw {
+    artifact "Original source files" as raw_files
+  }
+
+  package "Bronze layer\nDelta Lake" as bronze {
+    artifact "Ingested source data" as bronze_data
+    artifact "Rejects" as rejected
+  }
+
+  package "Silver layer\nDelta Lake" as silver {
+    artifact "Standardized and validated data" as silver_data
+  }
+
+  component "Integration" as integration
+
+  package "Gold layer\nDelta Lake" as gold {
+    artifact "Integrated taxi trips\npartitioned by pickup_date" as by_date
+    artifact "Integrated taxi trips\npartitioned by pickup_borough" as by_borough
+  }
+}
+
+sources --> ingestion
+ingestion --> raw
+raw --> bronze
+bronze --> silver
+silver --> integration
+integration --> by_date
+integration --> by_borough
+
+
+@enduml
