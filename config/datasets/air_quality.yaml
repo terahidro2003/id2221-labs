@@ -1,0 +1,39 @@
+name: air_quality
+format: csv
+path: air_quality/hourly_88101_2024.csv
+read:
+  header: true
+  inferSchema: true
+
+bronze:
+  table: air_quality
+  partition_by: [state_code, measurement_date]
+  filter:
+    column: State Code
+    equals: 36
+  prep: air_quality_bronze
+  validation:
+    - rule: schema
+      expected:
+        State Code: integer
+        County Code: integer
+        Site Num: integer
+        Parameter Name: string
+        Date GMT: string
+        Time GMT: string
+        Sample Measurement: double
+        Units of Measure: string
+
+silver:
+  table: air_quality
+  primary_key: [state_code, county_code, site_num, parameter, measurement_timestamp]
+  partition_by: [measurement_date]
+  validation:
+    - rule: not_null
+      columns: [state_code, county_code, site_num, parameter, measurement_timestamp]
+    - rule: numeric_range
+      column: value
+      min: -50
+      max: 1000
+    - rule: primary_key
+      columns: [state_code, county_code, site_num, parameter, measurement_timestamp]

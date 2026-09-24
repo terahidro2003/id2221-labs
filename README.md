@@ -8,35 +8,61 @@
 Ensure Java 17 is installed and `JAVA_HOME` is set.
 Run `pip install -r requirements.txt` in the root to install dependencies.
 
-### Run data pipeline
-Start your Jupyter environment by running `jupyter notebook` in the root directory.
+### Run data pipeline (CLI)
 
-Open and execute all cells in `notebooks/ingestion.ipynb` to:
-- Download and extract the raw datasets.
-- Validate schemas and load the raw data into Bronze Delta tables.
-- Normalize timestamps, apply data quality checks, and promote the data to Silver Delta tables.
+From the repository root:
 
-Open and execute all cells in `notebooks/integration.ipynb` to:
-- Aggregate contextual data and execute broadcast joins to enrich the taxi trips.
-- Write the final analytical dataset to the Gold layer.
-- Execute the storage layout benchmark and analytical queries.
+```bash
+python -m src.jobs.run_download
+python -m src.jobs.run_bronze
+python -m src.jobs.run_silver
+python -m src.jobs.run_gold                 # --stage integrate|products|all
+```
+
+Optional:
+
+```bash
+python -m src.jobs.run_bronze --dataset taxi_zones
+python -m src.jobs.run_gold --stage integrate
+python -m src.jobs.run_gold --stage products --force-products
+python -m src.jobs.run_generator            # synthetic incremental raw updates
+```
+
+Dataset schemas, partitions, and DQ rules live under `config/datasets/`.
+Type compatibility for schema checks is in `config/compatible_types.yaml`.
+
+### Notebooks (exploration / thin runners)
+
+Start Jupyter with `jupyter notebook` from the root. Notebooks call into `src/` and
+are optional if you use the CLI jobs above.
+
+| Notebook | Role |
+|---|---|
+| `notebooks/ingestion.ipynb` | Download + bronze + silver |
+| `notebooks/integration.ipynb` | Gold integrate + exploratory Q1–Q6 |
+| `notebooks/data_products.ipynb` | Gold data products |
+| `notebooks/data_generator.ipynb` | Incremental raw updates |
+| `notebooks/benchmark.ipynb` | Product vs on-demand / AQE benchmarks |
+| `notebooks/query_optimization.ipynb` | Query optimization experiments |
 
 ## Assignment 2
 
-To run the analytical notebooks for Assignment 2, the steps from Assignment 1 must first be completed in order to set up the data. This means:
+Complete Assignment 1 (bronze → silver → gold) first so lake tables exist.
 
-### Expected order of execution
-1. `notebooks/ingestion.ipynb`
-2. `notebooks/integration.ipynb`
+### Expected order
 
-### Analytical Queries
-The analytical queries from Task 2 are found in `integration.ipynb` and are executed against the Gold-layer integrated dataset.
+1. `python -m src.jobs.run_download` → `run_bronze` → `run_silver`
+2. `python -m src.jobs.run_gold --stage integrate`
+3. `python -m src.jobs.run_gold --stage products` (or `--stage all`)
+4. Explore queries / run `notebooks/benchmark.ipynb`
 
-### Generate analytical data products
-Open and execute all cells in `notebooks/data_products.ipynb` to create the data products used for benchmarking. This notebook builds tables such as `taxi_zone_monthly_demand`, `weather_impact_summary`, `air_quality_demand_summary`, and `zone_weather_sensitivity`. These are found under the `data_products` folder in the Gold layer.
+### Analytical queries
 
-### Run the benchmark experiments
-Open and execute all cells in `notebooks/benchmark.ipynb`.
+Shared SQL (Q1–Q6) is in `src/queries/analytical.py`. Integration and benchmark
+notebooks import these strings rather than duplicating them.
 
+### Data products
 
-
+Gold products are written under `data/lake/gold/data_products/` by
+`src.gold.products` (daily borough mobility, monthly zone demand, weather impact,
+air quality demand, zone weather sensitivity).

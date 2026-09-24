@@ -1,0 +1,27 @@
+name: taxi_zones
+format: csv
+path: taxi_zones
+read:
+  header: true
+  inferSchema: true
+
+bronze:
+  table: taxi_zones
+  partition_by: []
+  validation:
+    - rule: schema
+      expected:
+        LocationID: integer
+        Borough: string
+        Zone: string
+        service_zone: string
+
+silver:
+  table: taxi_zones
+  primary_key: [location_id]
+  partition_by: []
+  validation:
+    - rule: not_null
+      columns: [location_id]
+    - rule: primary_key
+      columns: [location_id]

@@ -1,0 +1,30 @@
+name: weather
+format: csv
+path: weather
+read:
+  header: true
+  inferSchema: true
+
+bronze:
+  table: weather
+  partition_by: [observation_date]
+  prep: observation_date_from_ymd
+  validation:
+    - rule: schema
+      expected:
+        year: integer
+        month: integer
+        day: integer
+        hour: integer
+        temp: double
+        wspd: double
+
+silver:
+  table: weather
+  primary_key: [station_id, obs_timestamp]
+  partition_by: [observation_date]
+  validation:
+    - rule: not_null
+      columns: [station_id, obs_timestamp]
+    - rule: primary_key
+      columns: [station_id, obs_timestamp]

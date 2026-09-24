@@ -1,0 +1,60 @@
+name: taxi_trips
+format: parquet
+path: taxi_trips/yellow
+
+bronze:
+  table: taxi_trips
+  partition_by: [taxi_type, pickup_date]
+  prep: normalize_yellow_trips
+  taxi_type: yellow
+  validation:
+    - rule: schema
+      expected:
+        VendorID: integer
+        tpep_pickup_datetime: timestamp
+        tpep_dropoff_datetime: timestamp
+        passenger_count: long
+        trip_distance: double
+        PULocationID: long
+        DOLocationID: long
+        fare_amount: double
+        total_amount: double
+
+silver:
+  table: taxi_trips
+  primary_key:
+    - vendor_id
+    - pickup_datetime
+    - dropoff_datetime
+    - pickup_location_id
+    - dropoff_location_id
+  partition_by: [pickup_date]
+  validation:
+    - rule: not_null
+      columns:
+        - pickup_datetime
+        - dropoff_datetime
+        - pickup_location_id
+        - dropoff_location_id
+    - rule: timestamp_order
+      before: pickup_datetime
+      after: dropoff_datetime
+    - rule: timestamp_range
+      column: pickup_datetime
+      min: "2024-01-01"
+      max: "2024-06-01"
+    - rule: numeric_range
+      column: fare_amount
+      min: 0
+      max: 500
+    - rule: numeric_range
+      column: trip_distance
+      min: 0
+      max: 200
+    - rule: primary_key
+      columns:
+        - vendor_id
+        - pickup_datetime
+        - dropoff_datetime
+        - pickup_location_id
+        - dropoff_location_id

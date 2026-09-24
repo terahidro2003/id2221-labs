@@ -54,10 +54,20 @@ def _prefer_venv_site_packages(root: Path) -> None:
     sys.path.insert(0, site)
 
 
+def ensure_runtime(root: Path | None = None) -> Path:
+    """Prefer project ``.venv`` site-packages so pyspark/delta import on non-venv kernels.
+
+    Call this (or import ``src`` after path setup) *before* ``from src.lake import ...``,
+    which pulls in pyspark at module import time.
+    """
+    resolved = Path(root) if root is not None else project_root()
+    _prefer_venv_site_packages(resolved)
+    return resolved
+
+
 def create_spark(app_name: str = "urban-data-platform"):
-    root = project_root()
+    ensure_runtime()
     _configure_java()
-    _prefer_venv_site_packages(root)
 
     from delta import configure_spark_with_delta_pip
     from pyspark import SparkContext

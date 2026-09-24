@@ -19,20 +19,11 @@ for _path in (BRONZE, SILVER, GOLD):
     _path.mkdir(parents=True, exist_ok=True)
 
 
+_DELTA_UNSAFE = str.maketrans({ch: "_" for ch in " ,;{}()\n\t="})
+
+
 def delta_safe_name(name: str) -> str:
-    return (
-        name.strip()
-        .replace(" ", "_")
-        .replace(",", "_")
-        .replace(";", "_")
-        .replace("{", "_")
-        .replace("}", "_")
-        .replace("(", "_")
-        .replace(")", "_")
-        .replace("\n", "_")
-        .replace("\t", "_")
-        .replace("=", "_")
-    )
+    return name.strip().translate(_DELTA_UNSAFE)
 
 
 def with_delta_safe_columns(df: DataFrame) -> DataFrame:
