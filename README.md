@@ -17,6 +17,7 @@ python -m src.jobs.run_download
 python -m src.jobs.run_bronze
 python -m src.jobs.run_silver
 python -m src.jobs.run_gold                 # --stage integrate|products|all
+python -m src.jobs.run_monitoring_report   # ops metrics Spark SQL
 ```
 
 Optional:
@@ -28,6 +29,11 @@ python -m src.jobs.run_gold --stage products --force-products
 python -m src.jobs.run_generator            # synthetic incremental raw updates
 ```
 
+Each bronze/silver/gold dataset execution appends a row to
+`data/lake/ops/pipeline_runs` (duration, processed/inserted/rejected counts,
+schema version, validation failures). Inspect with
+`python -m src.jobs.run_monitoring_report` or `notebooks/monitoring.ipynb`.
+
 Dataset schemas, partitions, and DQ rules live under `config/datasets/`.
 Type compatibility for schema checks is in `config/compatible_types.yaml`.
 
@@ -38,12 +44,14 @@ are optional if you use the CLI jobs above.
 
 | Notebook | Role |
 |---|---|
+| `notebooks/run_pipeline.ipynb` | **Full demo**: download → bronze/silver/gold → Q1–Q6 → optimizations → products → benchmarks → incremental re-ingest → monitoring |
 | `notebooks/ingestion.ipynb` | Download + bronze + silver |
 | `notebooks/integration.ipynb` | Gold integrate + exploratory Q1–Q6 |
 | `notebooks/data_products.ipynb` | Gold data products |
 | `notebooks/data_generator.ipynb` | Incremental raw updates |
 | `notebooks/benchmark.ipynb` | Product vs on-demand / AQE benchmarks |
 | `notebooks/query_optimization.ipynb` | Query optimization experiments |
+| `notebooks/monitoring.ipynb` | Ops pipeline_runs metrics report |
 
 ## Assignment 2
 

@@ -9,6 +9,7 @@ from pyspark.sql import SparkSession
 
 from src.common.metadata import safe_write_delta, should_refresh
 from src.lake import GOLD, read_delta
+from src.monitoring import record_run
 from src.queries.analytical import (
     QUERY_1_MONTHLY_ZONE_DEMAND,
     QUERY_4_ZONE_WEATHER_SENSITIVITY,
@@ -50,11 +51,27 @@ def build_products(spark: SparkSession, force: bool = False) -> None:
         if not force and not should_refresh(spark, target, [integrated_path]):
             print(f"[SKIPPED] Product: {product.name} (Up to date)")
             continue
-        print(f"[REFRESHING] Product: {product.name}...")
-        safe_write_delta(
-            spark.sql(product.sql),
-            target,
-            partition_by=product.partition_by,
-            schema_ver=schema_version,
-        )
-        print(f"Product {product.name} refreshed successfully.")
+
+        with record_run(
+            spark,
+            layer="gold",
+            dataset=product.name,
+            schema_version=schema_version,
+        ) as run:
+            print(f"[REFRESHING] Product: {product.name}...")
+            out = spark.sql(product.sql)
+            n_rows = out.count()
+            safe_write_delta(
+                out,
+                target,
+                partition_by=product.partition_by,
+                schema_ver=schema_version,
+            )
+            run.set_counts(
+                processed=n_rows,
+                inserted=n_rows,
+                rejected=0,
+                validation_failures=0,
+                validation_ok=True,
+            )
+            print(f"Product {product.name} refreshed successfully.")

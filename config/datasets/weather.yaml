@@ -1,6 +1,7 @@
 name: weather
+schema_version: "1.0"
 format: csv
-path: weather
+path: weather/weather.csv
 read:
   header: true
   inferSchema: true

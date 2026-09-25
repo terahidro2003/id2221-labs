@@ -1,4 +1,5 @@
 name: taxi_trips
+schema_version: "1.0"
 format: parquet
 path: taxi_trips/yellow
 

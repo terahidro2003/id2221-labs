@@ -1,4 +1,5 @@
 name: taxi_zones
+schema_version: "1.0"
 format: csv
 path: taxi_zones
 read:

@@ -14,8 +14,9 @@ RAW = ROOT / "data" / "raw"
 BRONZE = ROOT / "data" / "lake" / "bronze"
 SILVER = ROOT / "data" / "lake" / "silver"
 GOLD = ROOT / "data" / "lake" / "gold"
+OPS = ROOT / "data" / "lake" / "ops"
 
-for _path in (BRONZE, SILVER, GOLD):
+for _path in (BRONZE, SILVER, GOLD, OPS):
     _path.mkdir(parents=True, exist_ok=True)
 
 

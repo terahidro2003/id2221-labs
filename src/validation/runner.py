@@ -57,7 +57,7 @@ def run_schema_checks(
     config: Mapping[str, Any] | Sequence[Mapping[str, Any]] | None,
     dataset: str = "",
 ) -> ValidationResult:
-    """Fail-fast schema validation. Raises ValueError if not ok."""
+    """Schema validation. Returns ValidationResult; does not raise (caller decides)."""
     errors: list[str] = []
     for item in _rule_items(config):
         if item.get("rule") != "schema":
@@ -69,8 +69,7 @@ def run_schema_checks(
     print(f"[{label}] schema ok={ok}")
     if errors:
         print("  errors:", errors)
-        raise ValueError(f"Schema validation failed for {label}: {errors}")
-    return ValidationResult(ok=True, errors=[], stats={"dataset": label})
+    return ValidationResult(ok=ok, errors=errors, stats={"dataset": label})
 
 
 def _collect_reject_reasons(

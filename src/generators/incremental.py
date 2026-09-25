@@ -186,16 +186,25 @@ def generate_taxi_trips_update(
     new_fraction: float = 0.07,
     duplicate_fraction: float = 0.015,
     seed: int = 42,
+    spark=None,
 ):
-    from pyspark.sql import functions as F
-    from src.spark import create_spark
+    from pyspark.sql import SparkSession, functions as F
 
     if not 0.05 <= new_fraction <= 0.10:
         raise ValueError("new_fraction must be between 0.05 and 0.10")
     if not 0.01 <= duplicate_fraction <= 0.02:
         raise ValueError("duplicate_fraction must be between 0.01 and 0.02")
 
-    spark = create_spark("data-generator-taxi")
+    # Prefer an already-running notebook/job session; never stop one we did not create.
+    own_session = False
+    if spark is None:
+        spark = SparkSession.getActiveSession()
+    if spark is None:
+        from src.spark import create_spark
+
+        spark = create_spark("data-generator-taxi")
+        own_session = True
+
     trips = spark.read.parquet(source_path)
 
     valid = trips.filter(
@@ -206,7 +215,8 @@ def generate_taxi_trips_update(
     n_source = valid.count()
     latest = valid.agg(F.max("tpep_pickup_datetime")).first()[0]
     if latest is None:
-        spark.stop()
+        if own_session:
+            spark.stop()
         raise ValueError(f"No valid pickup timestamps in {source_path}")
 
     sample = valid.sample(False, new_fraction, seed).cache()
@@ -231,7 +241,8 @@ def generate_taxi_trips_update(
     ).first()
 
     sample.unpersist()
-    spark.stop()
+    if own_session:
+        spark.stop()
     return n_source, n_new, n_dups, latest, new_min, new_max, out_path
 
 
@@ -325,7 +336,7 @@ def air_quality_transform(row):
     return row
 
 
-def run_all_generators() -> None:
+def run_all_generators(spark=None) -> None:
     root = project_root()
 
     taxi_source = str(root / "data/raw/taxi_trips/yellow")
@@ -344,6 +355,7 @@ def run_all_generators() -> None:
         update_path=taxi_update,
         new_fraction=0.07,
         duplicate_fraction=0.015,
+        spark=spark,
     )
     print("=== TAXI TRIPS GENERATION REPORT ===")
     print(f"Source directory:       {taxi_source}")

@@ -26,7 +26,7 @@ def transform_taxi_zones(df: DataFrame) -> DataFrame:
 
 
 def transform_weather(df: DataFrame) -> DataFrame:
-    return (
+    out = (
         df.withColumn(
             "obs_timestamp",
             F.make_timestamp(
@@ -40,15 +40,19 @@ def transform_weather(df: DataFrame) -> DataFrame:
         )
         .withColumn("observation_date", F.to_date("obs_timestamp"))
         .withColumn("observation_hour", F.hour("obs_timestamp"))
-        .select(
-            F.lit("72505394728").alias("station_id"),
-            "obs_timestamp",
-            F.col("temp").cast("double").alias("temperature_c"),
-            (F.col("wspd").cast("double") / F.lit(3.6)).alias("wind_speed_ms"),
-            "observation_date",
-            "observation_hour",
-        )
     )
+    cols = [
+        F.lit("72505394728").alias("station_id"),
+        F.col("obs_timestamp"),
+        F.col("temp").cast("double").alias("temperature_c"),
+        (F.col("wspd").cast("double") / F.lit(3.6)).alias("wind_speed_ms"),
+        F.col("observation_date"),
+        F.col("observation_hour"),
+    ]
+    # Schema evolution: optional humidity from incremental updates
+    if "humidity" in out.columns:
+        cols.append(F.col("humidity").cast("double").alias("humidity"))
+    return out.select(*cols)
 
 
 def _gmt_timestamp_local(date_col: str, time_col: str):
@@ -74,25 +78,29 @@ def transform_air_quality(df: DataFrame) -> DataFrame:
             "Units_of_Measure": "unit",
         },
     )
-    return (
+    out = (
         aq.withColumn(
             "measurement_timestamp",
             _gmt_timestamp_local("date_gmt", "time_gmt"),
         )
         .withColumn("measurement_date", F.to_date("measurement_timestamp"))
         .withColumn("measurement_hour", F.hour("measurement_timestamp"))
-        .select(
-            F.col("state_code").cast("int").alias("state_code"),
-            F.col("county_code").cast("int").alias("county_code"),
-            F.col("site_num").cast("int").alias("site_num"),
-            F.col("parameter").cast("string").alias("parameter"),
-            F.col("value").cast("double").alias("value"),
-            F.col("unit").cast("string").alias("unit"),
-            "measurement_timestamp",
-            "measurement_date",
-            "measurement_hour",
-        )
     )
+    cols = [
+        F.col("state_code").cast("int").alias("state_code"),
+        F.col("county_code").cast("int").alias("county_code"),
+        F.col("site_num").cast("int").alias("site_num"),
+        F.col("parameter").cast("string").alias("parameter"),
+        F.col("value").cast("double").alias("value"),
+        F.col("unit").cast("string").alias("unit"),
+        F.col("measurement_timestamp"),
+        F.col("measurement_date"),
+        F.col("measurement_hour"),
+    ]
+    # Schema evolution: optional aqi from incremental updates
+    if "aqi" in out.columns:
+        cols.append(F.col("aqi").cast("double").alias("aqi"))
+    return out.select(*cols)
 
 
 def transform_taxi_trips(df: DataFrame) -> DataFrame:

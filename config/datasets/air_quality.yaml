@@ -1,4 +1,5 @@
 name: air_quality
+schema_version: "1.0"
 format: csv
 path: air_quality/hourly_88101_2024.csv
 read:
