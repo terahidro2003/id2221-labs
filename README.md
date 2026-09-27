@@ -24,6 +24,7 @@ Optional:
 
 ```bash
 python -m src.jobs.run_bronze --dataset taxi_zones
+python -m src.jobs.run_bronze --mode incremental --dataset taxi_trips  # update file only
 python -m src.jobs.run_gold --stage integrate
 python -m src.jobs.run_gold --stage products --force-products
 python -m src.jobs.run_generator            # synthetic incremental raw updates

@@ -4,7 +4,8 @@ format: csv
 path: weather/weather.csv
 read:
   header: true
-  inferSchema: true
+  # Types come from bronze.validation schema casts (avoids inferSchema full scan).
+  inferSchema: false
 
 bronze:
   table: weather

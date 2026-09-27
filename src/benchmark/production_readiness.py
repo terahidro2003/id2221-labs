@@ -9,7 +9,7 @@ from typing import Any, Optional
 
 from pyspark.sql import SparkSession
 
-from src.bronze.ingest import _read_raw, ingest_all
+from src.bronze.ingest import _read_raw, ingest_all, ingest_dataset, update_path_for
 from src.common.config import load_dataset_config
 from src.gold.integrate import integrate
 from src.gold.products import build_products
@@ -73,6 +73,42 @@ class PhaseTiming:
 
 
 @dataclass
+class IngestComparison:
+    """Baseline (full overwrite) vs incremental (update-only append) bronze ingest."""
+
+    baseline_sec: float
+    incremental_sec: float
+    baseline_by_dataset: dict[str, float] = field(default_factory=dict)
+    incremental_by_dataset: dict[str, float] = field(default_factory=dict)
+
+    @property
+    def speedup(self) -> float:
+        if self.incremental_sec <= 0:
+            return float("inf")
+        return self.baseline_sec / self.incremental_sec
+
+    @property
+    def savings_pct(self) -> float:
+        if self.baseline_sec <= 0:
+            return 0.0
+        return 100.0 * (self.baseline_sec - self.incremental_sec) / self.baseline_sec
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "baseline_sec": round(self.baseline_sec, 3),
+            "incremental_sec": round(self.incremental_sec, 3),
+            "speedup": round(self.speedup, 2),
+            "savings_pct": round(self.savings_pct, 1),
+            "baseline_by_dataset_sec": {
+                k: round(v, 3) for k, v in self.baseline_by_dataset.items()
+            },
+            "incremental_by_dataset_sec": {
+                k: round(v, 3) for k, v in self.incremental_by_dataset.items()
+            },
+        }
+
+
+@dataclass
 class ProductionReadinessReport:
     incremental_update_sec: float = 0.0
     incremental_phases: list[PhaseTiming] = field(default_factory=list)
@@ -85,6 +121,7 @@ class ProductionReadinessReport:
     monitoring_overhead_sec: float = 0.0
     monitoring_per_append_sec: float = 0.0
     monitoring_estimated_pipeline_sec: float = 0.0
+    ingest_comparison: Optional[IngestComparison] = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -106,6 +143,9 @@ class ProductionReadinessReport:
             "monitoring_estimated_pipeline_sec": round(
                 self.monitoring_estimated_pipeline_sec, 3
             ),
+            "ingest_comparison": self.ingest_comparison.to_dict()
+            if self.ingest_comparison
+            else None,
         }
 
 
@@ -166,7 +206,7 @@ def measure_incremental_update(
         phases.append(PhaseTiming("generate", time.perf_counter() - t0))
 
     t0 = time.perf_counter()
-    ingest_all(spark, list(datasets))
+    ingest_all(spark, list(datasets), mode="incremental")
     phases.append(PhaseTiming("bronze_ingest", time.perf_counter() - t0))
 
     t0 = time.perf_counter()
@@ -184,6 +224,84 @@ def measure_incremental_update(
 
     total = time.perf_counter() - t_all
     return total, phases
+
+
+def measure_ingest_comparison(
+    spark: SparkSession,
+    *,
+    datasets: tuple[str, ...] = INCREMENTAL_DATASETS,
+    ensure_updates: bool = True,
+) -> IngestComparison:
+    """
+    Time baseline bronze ingest (full overwrite) vs incremental (update-only append).
+
+    Incremental runs first; full overwrite last so bronze ends clean (no duplicated
+    update rows). Update files must exist (generated if needed).
+    """
+    from src.generators.incremental import run_all_generators
+
+    if ensure_updates and any(update_path_for(name) is None for name in datasets):
+        print("Update files missing — generating incremental updates first...")
+        run_all_generators(spark=spark)
+
+    missing = [n for n in datasets if update_path_for(n) is None]
+    if missing:
+        raise FileNotFoundError(
+            f"No update files for {missing}; run generators before ingest comparison"
+        )
+
+    print("\n=== Incremental bronze ingest (mode=incremental, append) ===")
+    incr_by: dict[str, float] = {}
+    t_incr = time.perf_counter()
+    for name in datasets:
+        t0 = time.perf_counter()
+        ingest_dataset(spark, name, mode="incremental")
+        incr_by[name] = time.perf_counter() - t0
+        print(f"  incremental {name}: {incr_by[name]:.2f}s")
+    incr_total = time.perf_counter() - t_incr
+
+    # Full overwrite last so bronze ends clean (no duplicated update rows).
+    print("\n=== Baseline bronze ingest (mode=full, overwrite) ===")
+    baseline_by: dict[str, float] = {}
+    t_base = time.perf_counter()
+    for name in datasets:
+        t0 = time.perf_counter()
+        ingest_dataset(spark, name, mode="full")
+        baseline_by[name] = time.perf_counter() - t0
+        print(f"  baseline {name}: {baseline_by[name]:.2f}s")
+    baseline_total = time.perf_counter() - t_base
+
+    comparison = IngestComparison(
+        baseline_sec=baseline_total,
+        incremental_sec=incr_total,
+        baseline_by_dataset=baseline_by,
+        incremental_by_dataset=incr_by,
+    )
+    print_ingest_comparison(comparison)
+    return comparison
+
+
+def print_ingest_comparison(comparison: IngestComparison) -> None:
+    d = comparison.to_dict()
+    print("\n" + "=" * 72)
+    print("INGEST COMPARISON: baseline (full) vs incremental")
+    print("=" * 72)
+    print(f"{'dataset':<16} {'baseline_s':>12} {'incremental_s':>14} {'speedup':>10}")
+    print("-" * 72)
+    for name in d["baseline_by_dataset_sec"]:
+        b = d["baseline_by_dataset_sec"][name]
+        i = d["incremental_by_dataset_sec"].get(name, 0.0)
+        sp = (b / i) if i > 0 else float("inf")
+        print(f"{name:<16} {b:>12.2f} {i:>14.2f} {sp:>9.2f}x")
+    print("-" * 72)
+    print(
+        f"{'TOTAL':<16} {d['baseline_sec']:>12.2f} {d['incremental_sec']:>14.2f} "
+        f"{d['speedup']:>9.2f}x"
+    )
+    print(
+        f"Incremental saves {d['savings_pct']:.1f}% wall time vs full overwrite ingest."
+    )
+    print("=" * 72)
 
 
 def measure_analytical_refresh(spark: SparkSession, *, force: bool = True) -> float:
@@ -321,6 +439,18 @@ def print_production_readiness_report(report: ProductionReadinessReport) -> None
         f"   est. full pipeline:     {d['monitoring_estimated_pipeline_sec']:.2f}s "
         f"(~12 steps)"
     )
+
+    ic = d.get("ingest_comparison")
+    if ic:
+        print("\n6) Ingest comparison (baseline full vs incremental append)")
+        print(f"   baseline total:         {ic['baseline_sec']:.2f}s")
+        print(f"   incremental total:      {ic['incremental_sec']:.2f}s")
+        print(f"   speedup:                {ic['speedup']:.2f}x")
+        print(f"   time saved:             {ic['savings_pct']:.1f}%")
+        for name, sec in ic["baseline_by_dataset_sec"].items():
+            incr = ic["incremental_by_dataset_sec"].get(name, 0.0)
+            sp = (sec / incr) if incr > 0 else float("inf")
+            print(f"   - {name:<20} baseline={sec:.2f}s  incr={incr:.2f}s  ({sp:.2f}x)")
     print("=" * 72)
 
 
@@ -333,11 +463,19 @@ def evaluate_production_readiness(
     run_analytical_refresh: bool = True,
     measure_validation: bool = True,
     measure_monitoring: bool = True,
+    compare_ingest: bool = False,
     monitoring_samples: int = 3,
 ) -> ProductionReadinessReport:
-   
     report = ProductionReadinessReport()
     report.storage_before = snapshot_storage()
+
+    if compare_ingest:
+        print("\n=== Measuring baseline vs incremental bronze ingest ===")
+        report.ingest_comparison = measure_ingest_comparison(
+            spark,
+            datasets=datasets,
+            ensure_updates=True,
+        )
 
     if run_incremental:
         print("\n=== Measuring incremental update time ===")

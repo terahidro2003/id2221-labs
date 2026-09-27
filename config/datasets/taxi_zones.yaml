@@ -4,7 +4,8 @@ format: csv
 path: taxi_zones
 read:
   header: true
-  inferSchema: true
+  # Types come from bronze.validation schema casts (avoids inferSchema full scan).
+  inferSchema: false
 
 bronze:
   table: taxi_zones

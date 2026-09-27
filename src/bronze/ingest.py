@@ -1,13 +1,14 @@
+"""Bronze ingest: read raw → schema validate → write_bronze."""
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Literal, Optional
 
 from pyspark.sql import DataFrame, SparkSession, functions as F
 
 from src.common.config import list_dataset_configs, load_dataset_config
-from src.lake import RAW, write_bronze
+from src.lake import BRONZE, RAW, write_bronze
 from src.monitoring import record_run
 from src.validation import run_schema_checks
 
@@ -16,6 +17,8 @@ _UPDATE_FILES = {
     "weather": RAW / "weather" / "weather_update.csv",
     "air_quality": RAW / "air_quality" / "hourly_88101_update.csv",
 }
+
+IngestMode = Literal["auto", "full", "incremental"]
 
 _SPARK_CAST = {
     "integer": "int",
@@ -29,12 +32,18 @@ _SPARK_CAST = {
 }
 
 
-def _read_csv(spark: SparkSession, path: Path, opts: dict[str, Any]) -> DataFrame:
+def _read_csv(
+    spark: SparkSession,
+    path: Path,
+    opts: dict[str, Any],
+    *,
+    infer_schema: bool,
+) -> DataFrame:
     reader = spark.read
     if opts.get("header", True):
         reader = reader.option("header", True)
-    if opts.get("inferSchema", True):
-        reader = reader.option("inferSchema", True)
+    # inferSchema forces an extra full/sample scan — prefer explicit casts from YAML.
+    reader = reader.option("inferSchema", bool(infer_schema))
     return reader.csv(str(path))
 
 
@@ -46,6 +55,7 @@ def _expected_from_cfg(cfg: dict[str, Any]) -> dict[str, str]:
 
 
 def _cast_expected(df: DataFrame, expected: dict[str, str]) -> DataFrame:
+    """Cast configured columns to logical types (CSV often lands as string)."""
     out = df
     for col, logical in expected.items():
         if col not in out.columns:
@@ -57,42 +67,96 @@ def _cast_expected(df: DataFrame, expected: dict[str, str]) -> DataFrame:
     return out
 
 
+def _csv_infer_schema(cfg: dict[str, Any], expected: dict[str, str]) -> bool:
+    opts = dict(cfg.get("read") or {})
+    # When YAML declares expected types, skip inferSchema (avoids a full CSV probe scan).
+    return bool(opts.get("inferSchema", True)) and not (
+        cfg.get("format", "csv") == "csv" and bool(expected)
+    )
+
+
+def _read_file(
+    spark: SparkSession,
+    path: Path,
+    cfg: dict[str, Any],
+    *,
+    expected: dict[str, str],
+    infer_schema: bool,
+) -> DataFrame:
+    fmt = cfg.get("format", "csv")
+    opts = dict(cfg.get("read") or {})
+    if fmt == "parquet":
+        return spark.read.parquet(str(path))
+    df = _read_csv(spark, path, opts, infer_schema=infer_schema)
+    if expected and not infer_schema:
+        df = _cast_expected(df, expected)
+    return df
+
+
+def update_path_for(name: str) -> Optional[Path]:
+    path = _UPDATE_FILES.get(name)
+    return path if path is not None and path.is_file() else None
+
+
+def bronze_table_exists(name: str, cfg: Optional[dict[str, Any]] = None) -> bool:
+    cfg = cfg or load_dataset_config(name)
+    table = (cfg.get("bronze") or {}).get("table", name)
+    delta_log = BRONZE / table / "_delta_log"
+    return delta_log.is_dir()
+
+
+def _resolve_mode(name: str, cfg: dict[str, Any], mode: IngestMode) -> IngestMode:
+    if mode != "auto":
+        return mode
+    if update_path_for(name) is not None and bronze_table_exists(name, cfg):
+        return "incremental"
+    return "full"
+
+
 def _union_update(
     spark: SparkSession,
     base: DataFrame,
     update_path: Path,
+    cfg: dict[str, Any],
     *,
-    fmt: str,
-    opts: dict[str, Any],
+    expected: dict[str, str],
+    infer_schema: bool,
 ) -> DataFrame:
-    if not update_path.is_file():
-        return base
     print(f"  + merging update file {update_path.name}")
-    if fmt == "parquet":
-        update = spark.read.parquet(str(update_path))
-    else:
-        update = _read_csv(spark, update_path, opts)
-    return base.unionByName(update, allowMissingColumns=True)
+    update = _read_file(
+        spark, update_path, cfg, expected=expected, infer_schema=infer_schema
+    )
+    out = base.unionByName(update, allowMissingColumns=True)
+    if cfg.get("format", "csv") == "csv" and expected and not infer_schema:
+        out = _cast_expected(out, expected)
+    return out
 
 
 def _read_raw(spark: SparkSession, cfg: dict[str, Any], name: str) -> DataFrame:
     path = RAW / cfg["path"]
-    fmt = cfg.get("format", "csv")
-    opts = cfg.get("read") or {}
+    expected = _expected_from_cfg(cfg)
+    infer_schema = _csv_infer_schema(cfg, expected)
+    df = _read_file(spark, path, cfg, expected=expected, infer_schema=infer_schema)
 
-    if fmt == "parquet":
-        df = spark.read.parquet(str(path))
-    else:
-        df = _read_csv(spark, path, opts)
-
-    update_path = _UPDATE_FILES.get(name)
+    update_path = update_path_for(name)
     if update_path is not None:
-        df = _union_update(spark, df, update_path, fmt=fmt, opts=opts)
-
-    # After multi-file CSV merges, types can widen to string — coerce from config.
-    if fmt == "csv":
-        df = _cast_expected(df, _expected_from_cfg(cfg))
+        df = _union_update(
+            spark, df, update_path, cfg, expected=expected, infer_schema=infer_schema
+        )
     return df
+
+
+def _read_update_only(spark: SparkSession, cfg: dict[str, Any], name: str) -> DataFrame:
+    """Read only the incremental update file (skip multi-GB base raw)."""
+    update_path = update_path_for(name)
+    if update_path is None:
+        raise FileNotFoundError(f"No update file registered/present for dataset: {name}")
+    expected = _expected_from_cfg(cfg)
+    infer_schema = _csv_infer_schema(cfg, expected)
+    print(f"  + incremental-only read {update_path.name}")
+    return _read_file(
+        spark, update_path, cfg, expected=expected, infer_schema=infer_schema
+    )
 
 
 def _apply_filter(df: DataFrame, filt: dict[str, Any] | None) -> DataFrame:
@@ -139,9 +203,10 @@ _PREP_FNS: dict[str, Callable[[DataFrame, dict[str, Any]], DataFrame]] = {
 }
 
 
-def _prep_bronze(df: DataFrame, cfg: dict[str, Any]) -> DataFrame:
+def _prep_bronze(df: DataFrame, cfg: dict[str, Any], *, apply_filter: bool = True) -> DataFrame:
     bronze = cfg.get("bronze") or {}
-    df = _apply_filter(df, bronze.get("filter"))
+    if apply_filter:
+        df = _apply_filter(df, bronze.get("filter"))
 
     prep_name = bronze.get("prep")
     if not prep_name:
@@ -153,23 +218,45 @@ def _prep_bronze(df: DataFrame, cfg: dict[str, Any]) -> DataFrame:
     return prep_fn(df, bronze)
 
 
-def ingest_dataset(spark: SparkSession, name: str) -> None:
+def ingest_dataset(
+    spark: SparkSession,
+    name: str,
+    *,
+    mode: IngestMode = "auto",
+) -> None:
+    """
+    Ingest one dataset into bronze.
+
+    mode:
+      - ``full``: read base (+ optional update union), overwrite bronze
+      - ``incremental``: read only the update file, append to existing bronze
+      - ``auto``: incremental when update file + bronze table both exist, else full
+    """
     cfg = load_dataset_config(name)
     bronze = cfg.get("bronze") or {}
     table = bronze.get("table", name)
     dataset_label = "taxi_trips/yellow" if name == "taxi_trips" else name
     schema_version = str(cfg.get("schema_version", "1.0"))
+    resolved = _resolve_mode(name, cfg, mode)
+    write_mode = "append" if resolved == "incremental" else "overwrite"
 
     with record_run(
         spark, layer="bronze", dataset=name, schema_version=schema_version
     ) as run:
-        raw_df = _read_raw(spark, cfg, name)
-        processed = raw_df.count()
-        run.set_counts(processed=processed, inserted=0, rejected=0)
+        if resolved == "incremental":
+            raw_df = _read_update_only(spark, cfg, name)
+        else:
+            raw_df = _read_raw(spark, cfg, name)
 
-        checked = run_schema_checks(raw_df, bronze, dataset=dataset_label)
+        # Push dataset filters (e.g. NY air quality) before any action/count.
+        filtered = _apply_filter(raw_df, bronze.get("filter"))
+
+        checked = run_schema_checks(filtered, bronze, dataset=dataset_label)
         if not checked.ok:
             run.set_counts(
+                processed=0,
+                inserted=0,
+                rejected=0,
                 validation_failures=len(checked.errors),
                 validation_ok=False,
             )
@@ -178,19 +265,37 @@ def ingest_dataset(spark: SparkSession, name: str) -> None:
                 f"Schema validation failed for {dataset_label}: {checked.errors}"
             )
 
-        framed = _prep_bronze(raw_df, cfg)
-        write_bronze(framed, table, partition_by=bronze.get("partition_by") or [])
-        inserted = framed.count()
-        run.set_counts(
-            processed=processed,
-            inserted=inserted,
-            rejected=0,
-            validation_failures=0,
-            validation_ok=True,
-        )
-        print(f"[bronze/{table}] written ({inserted:,} rows)")
+        framed = _prep_bronze(filtered, cfg, apply_filter=False)
+        # One materialization: cache → count → write (avoids a second full scan).
+        framed = framed.cache()
+        try:
+            n_rows = framed.count()
+            write_bronze(
+                framed,
+                table,
+                partition_by=bronze.get("partition_by") or [],
+                mode=write_mode,
+            )
+            run.set_counts(
+                processed=n_rows,
+                inserted=n_rows,
+                rejected=0,
+                validation_failures=0,
+                validation_ok=True,
+            )
+            print(
+                f"[bronze/{table}] {write_mode} ({n_rows:,} rows) "
+                f"[mode={resolved}]"
+            )
+        finally:
+            framed.unpersist()
 
 
-def ingest_all(spark: SparkSession, datasets: Optional[list[str]] = None) -> None:
+def ingest_all(
+    spark: SparkSession,
+    datasets: Optional[list[str]] = None,
+    *,
+    mode: IngestMode = "auto",
+) -> None:
     for name in datasets or list_dataset_configs():
-        ingest_dataset(spark, name)
+        ingest_dataset(spark, name, mode=mode)

@@ -35,6 +35,12 @@ def _configure_java() -> Path:
     os.environ["PATH"] = f"{java_home / 'bin'}:" + os.environ.get("PATH", "")
     os.environ["SPARK_LOCAL_IP"] = "127.0.0.1"
     os.environ["SPARK_LOCAL_HOSTNAME"] = "localhost"
+    os.environ["PYSPARK_PYTHON"] = sys.executable
+    os.environ["PYSPARK_DRIVER_PYTHON"] = sys.executable
+    # Workers need the repo root to import ``src`` if any Python UDF is used.
+    root = str(project_root())
+    existing = os.environ.get("PYTHONPATH", "")
+    os.environ["PYTHONPATH"] = root if not existing else f"{root}{os.pathsep}{existing}"
     subprocess.run(
         [str(java_home / "bin" / "java"), "-version"],
         check=True,

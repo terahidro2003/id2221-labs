@@ -21,15 +21,25 @@ def main(argv: list[str] | None = None) -> None:
         dest="datasets",
         help="Dataset name (repeatable). Default: all configs.",
     )
+    parser.add_argument(
+        "--mode",
+        choices=("auto", "full", "incremental"),
+        default="auto",
+        help=(
+            "auto: append update files when bronze already exists; "
+            "full: always rewrite from base raw; "
+            "incremental: update-file only (requires existing bronze)"
+        ),
+    )
     args = parser.parse_args(argv)
 
     spark = create_spark("run-bronze")
     try:
         if args.datasets:
             for name in args.datasets:
-                ingest_dataset(spark, name)
+                ingest_dataset(spark, name, mode=args.mode)
         else:
-            ingest_all(spark)
+            ingest_all(spark, mode=args.mode)
     finally:
         spark.stop()
 

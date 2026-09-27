@@ -332,6 +332,102 @@ def air_quality_transform(row):
     return row
 
 
+def generate_air_quality_update(
+    source_path: str,
+    update_path: str,
+    update_fraction: float = 0.01,
+    state_code: int = 36,
+    spark=None,
+):
+    """
+    Build an AQ update from NY rows only (matches bronze State Code filter).
+
+    Spark only filters/windows the large CSV; AQI + CSV write run on the driver
+    so workers never need the ``src`` package (avoids ModuleNotFoundError / UDFs).
+    """
+    from pyspark.sql import SparkSession, functions as F
+
+    own_session = False
+    if spark is None:
+        spark = SparkSession.getActiveSession()
+    if spark is None:
+        from src.spark import create_spark
+
+        spark = create_spark("data-generator-aq")
+        own_session = True
+
+    try:
+        raw = (
+            spark.read.option("header", True)
+            .option("inferSchema", False)
+            .csv(source_path)
+        )
+        header = list(raw.columns)
+        ny = raw.filter(F.col("State Code").cast("int") == F.lit(state_code))
+        n_source = ny.count()
+        if n_source == 0:
+            raise ValueError(f"No State Code={state_code} rows in {source_path}")
+
+        dated = ny.withColumn(
+            "_dt",
+            F.to_timestamp(
+                F.concat_ws(" ", F.col("Date GMT"), F.col("Time GMT")),
+                "yyyy-MM-dd HH:mm",
+            ),
+        ).filter(F.col("_dt").isNotNull())
+
+        latest = dated.agg(F.max("_dt").alias("m")).collect()[0]["m"]
+        hours = max(1, int(8760 * update_fraction))
+        cutoff = latest - timedelta(hours=hours)
+        window = dated.filter(F.col("_dt") > F.lit(cutoff))
+        if window.limit(1).count() == 0:
+            window = dated.filter(F.col("_dt") == F.lit(latest))
+
+        shift_s = int(timedelta(hours=1).total_seconds())
+        shifted = (
+            window.withColumn(
+                "_dt2",
+                (F.unix_timestamp("_dt") + F.lit(shift_s)).cast("timestamp"),
+            )
+            .withColumn("Date GMT", F.date_format("_dt2", "yyyy-MM-dd"))
+            .withColumn("Time GMT", F.date_format("_dt2", "HH:mm"))
+            .withColumn(
+                "Sample Measurement",
+                F.round(
+                    F.col("Sample Measurement").cast("double")
+                    * (1.0 + (F.rand(42) - 0.5) * 0.05),
+                    3,
+                ).cast("string"),
+            )
+            .drop("_dt", "_dt2")
+            .select(*header)
+        )
+
+        # Small window (~1k rows): finish on the driver — no worker Python / UDFs.
+        rows = [row.asDict(recursive=True) for row in shifted.collect()]
+        out_rows = [air_quality_transform(dict(row)) for row in rows]
+        if not out_rows:
+            raise ValueError("No air quality update rows produced after NY filter")
+
+        write_csv(update_path, header + ["aqi"], out_rows)
+
+        def _gmt(r):
+            try:
+                return datetime.strptime(
+                    f"{r['Date GMT']} {r['Time GMT']}", "%Y-%m-%d %H:%M"
+                )
+            except (KeyError, ValueError, TypeError):
+                return None
+
+        start = air_quality_dt_builder(out_rows[0]) or _gmt(out_rows[0])
+        end = air_quality_dt_builder(out_rows[-1]) or _gmt(out_rows[-1])
+        return n_source, len(out_rows), start, end
+    finally:
+        if own_session:
+            spark.stop()
+
+
+
 def run_all_generators(spark=None) -> None:
     root = project_root()
 
@@ -389,19 +485,17 @@ def run_all_generators(spark=None) -> None:
 
     aq_source = str(root / "data/raw/air_quality/hourly_88101_2024.csv")
     aq_update = str(root / "data/raw/air_quality/hourly_88101_update.csv")
-    print("Generating air quality incremental update...")
-    source_row_count, new_records, start_period, end_period = generate_incremental_csv_update(
+    print("Generating air quality incremental update (NY / State Code=36)...")
+    source_row_count, new_records, start_period, end_period = generate_air_quality_update(
         source_path=aq_source,
         update_path=aq_update,
         update_fraction=0.01,
-        datetime_builder=air_quality_dt_builder,
-        datetime_formatter=air_quality_dt_formatter,
-        transform_row=air_quality_transform,
-        extra_columns=["aqi"],
+        state_code=36,
+        spark=spark,
     )
     print("=== AIR QUALITY GENERATION REPORT ===")
     print(f"Source file:            {aq_source}")
-    print(f"Source records:         {source_row_count:,}")
+    print(f"NY source records:      {source_row_count:,}")
     print(f"Output update file:     {aq_update}")
     print(f"New records written:    {new_records:,}")
     print(f"Time period covered:    {start_period} to {end_period}")
