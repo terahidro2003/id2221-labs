@@ -64,18 +64,24 @@ def _gmt_timestamp_local(date_col: str, time_col: str):
 
 
 def transform_air_quality(df: DataFrame) -> DataFrame:
-    aq = rename_columns(
-        df,
-        {
-            "County_Code": "county_code",
-            "Site_Num": "site_num",
-            "Parameter_Name": "parameter",
-            "Date_GMT": "date_gmt",
-            "Time_GMT": "time_gmt",
-            "Sample_Measurement": "value",
-            "Units_of_Measure": "unit",
-        },
-    )
+    rename_map = {}
+    col_pairs = [
+        ("County Code", "County_Code", "county_code"),
+        ("Site Num", "Site_Num", "site_num"),
+        ("Parameter Name", "Parameter_Name", "parameter"),
+        ("Date GMT", "Date_GMT", "date_gmt"),
+        ("Time GMT", "Time_GMT", "time_gmt"),
+        ("Sample Measurement", "Sample_Measurement", "value"),
+        ("Units of Measure", "Units_of_Measure", "unit"),
+    ]
+    
+    for c_space, c_score, target in col_pairs:
+        if c_space in df.columns:
+            rename_map[c_space] = target
+        elif c_score in df.columns:
+            rename_map[c_score] = target
+            
+    aq = rename_columns(df, rename_map)
     out = (
         aq.withColumn(
             "measurement_timestamp",
@@ -148,9 +154,9 @@ TRANSFORMS = {
 }
 
 
-def transform_dataset(spark, name: str) -> DataFrame:
+def transform_dataset(spark, name: str, source_df: DataFrame | None = None) -> DataFrame:
     fn = TRANSFORMS.get(name)
     if fn is None:
         raise KeyError(f"No silver transform for dataset: {name}")
-    bronze_df = read_delta(spark, BRONZE / name)
+    bronze_df = source_df if source_df is not None else read_delta(spark, BRONZE / name)
     return fn(bronze_df)

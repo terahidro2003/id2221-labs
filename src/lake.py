@@ -39,15 +39,14 @@ def write_delta(
     df: DataFrame,
     path: Path,
     partition_by: Optional[list[str]] = None,
+    mode: str = "overwrite",
 ) -> Path:
-    writer = (
-        df.write.format("delta")
-        .mode("overwrite")
-        .option("overwriteSchema", "true")
-    )
-    parts = [c for c in (partition_by or []) if c in df.columns]
+    writer = df.write.format("delta").mode(mode).option("mergeSchema", "true")
+
+    parts = partition_by or []
     if parts:
         writer = writer.partitionBy(*parts)
+
     writer.save(str(path))
     return path
 
@@ -70,10 +69,15 @@ def write_bronze(
     df: DataFrame,
     table_name: str,
     partition_by: Optional[list[str]] = None,
+    mode: str = "overwrite",
 ) -> Path:
     framed = with_delta_safe_columns(df).withColumn("_ingested_at", F.current_timestamp())
-    return write_delta(framed, BRONZE / table_name, partition_by)
-
+    return write_delta(
+        framed, 
+        BRONZE / table_name, 
+        partition_by, 
+        mode=mode
+    )
 
 def write_silver(
     df: DataFrame,

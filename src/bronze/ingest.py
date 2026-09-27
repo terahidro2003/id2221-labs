@@ -5,9 +5,10 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from pyspark.sql import DataFrame, SparkSession, functions as F
+from pyspark.sql.types import TimestampType, IntegerType, LongType, FloatType, DoubleType
 
 from src.common.config import list_dataset_configs, load_dataset_config
-from src.lake import RAW, write_bronze
+from src.lake import BRONZE, RAW, write_bronze
 from src.monitoring import record_run
 from src.validation import run_schema_checks
 
@@ -75,19 +76,38 @@ def _union_update(
     return base.unionByName(update, allowMissingColumns=True)
 
 
-def _read_raw(spark: SparkSession, cfg: dict[str, Any], name: str) -> DataFrame:
+def has_incremental_update(name: str) -> bool:
+    update_path = _UPDATE_FILES.get(name)
+    return update_path is not None and update_path.is_file()
+
+
+def _read_raw(
+    spark: SparkSession,
+    cfg: dict[str, Any],
+    name: str,
+    *,
+    only_update: bool = False,
+) -> DataFrame:
     path = RAW / cfg["path"]
     fmt = cfg.get("format", "csv")
     opts = cfg.get("read") or {}
 
-    if fmt == "parquet":
-        df = spark.read.parquet(str(path))
-    else:
-        df = _read_csv(spark, path, opts)
-
     update_path = _UPDATE_FILES.get(name)
-    if update_path is not None:
-        df = _union_update(spark, df, update_path, fmt=fmt, opts=opts)
+    if only_update:
+        if update_path is None or not update_path.is_file():
+            raise FileNotFoundError(f"No incremental update file for {name}")
+        if fmt == "parquet":
+            df = spark.read.parquet(str(update_path))
+        else:
+            df = _read_csv(spark, update_path, opts)
+    else:
+        if fmt == "parquet":
+            df = spark.read.parquet(str(path))
+        else:
+            df = _read_csv(spark, path, opts)
+
+    # if not only_update and update_path is not None:
+    #     df = _union_update(spark, df, update_path, fmt=fmt, opts=opts)
 
     # After multi-file CSV merges, types can widen to string — coerce from config.
     if fmt == "csv":
@@ -119,6 +139,8 @@ def _prep_air_quality_bronze(df: DataFrame, _: dict[str, Any]) -> DataFrame:
     )
 
 
+from pyspark.sql.types import TimestampType
+
 def _prep_normalize_yellow_trips(df: DataFrame, bronze: dict[str, Any]) -> DataFrame:
     taxi_type = bronze.get("taxi_type", "yellow")
     out = df
@@ -126,6 +148,11 @@ def _prep_normalize_yellow_trips(df: DataFrame, bronze: dict[str, Any]) -> DataF
         out = out.withColumnRenamed("tpep_pickup_datetime", "pickup_datetime")
     if "tpep_dropoff_datetime" in out.columns:
         out = out.withColumnRenamed("tpep_dropoff_datetime", "dropoff_datetime")
+    if "pickup_datetime" in out.columns:
+        out = out.withColumn("pickup_datetime", F.col("pickup_datetime").cast(TimestampType()))
+    if "dropoff_datetime" in out.columns:
+        out = out.withColumn("dropoff_datetime", F.col("dropoff_datetime").cast(TimestampType()))
+
     return (
         out.withColumn("taxi_type", F.lit(taxi_type))
         .withColumn("pickup_date", F.to_date("pickup_datetime"))
@@ -139,8 +166,21 @@ _PREP_FNS: dict[str, Callable[[DataFrame, dict[str, Any]], DataFrame]] = {
 }
 
 
+from pyspark.sql.types import TimestampType
+import pyspark.sql.functions as F
+
 def _prep_bronze(df: DataFrame, cfg: dict[str, Any]) -> DataFrame:
     bronze = cfg.get("bronze") or {}
+
+    for col_name in ["tpep_pickup_datetime", "tpep_dropoff_datetime", "pickup_datetime", "dropoff_datetime"]:
+        if col_name in df.columns:
+            df = df.withColumn(col_name, F.col(col_name).cast(TimestampType()))
+
+
+    for field in df.schema.fields:
+        if isinstance(field.dataType, (IntegerType, LongType, FloatType)):
+            df = df.withColumn(field.name, F.col(field.name).cast(DoubleType()))
+
     df = _apply_filter(df, bronze.get("filter"))
 
     prep_name = bronze.get("prep")
@@ -159,11 +199,14 @@ def ingest_dataset(spark: SparkSession, name: str) -> None:
     table = bronze.get("table", name)
     dataset_label = "taxi_trips/yellow" if name == "taxi_trips" else name
     schema_version = str(cfg.get("schema_version", "1.0"))
+    incremental = has_incremental_update(name) and (
+        BRONZE / table / "_delta_log"
+    ).exists()
 
     with record_run(
         spark, layer="bronze", dataset=name, schema_version=schema_version
     ) as run:
-        raw_df = _read_raw(spark, cfg, name)
+        raw_df = _read_raw(spark, cfg, name, only_update=incremental)
         processed = raw_df.count()
         run.set_counts(processed=processed, inserted=0, rejected=0)
 
@@ -178,8 +221,15 @@ def ingest_dataset(spark: SparkSession, name: str) -> None:
                 f"Schema validation failed for {dataset_label}: {checked.errors}"
             )
 
+        if "pickup_datetime" in raw_df.columns:
+            raw_df = raw_df.withColumn("pickup_datetime", F.col("pickup_datetime").cast("timestamp"))
         framed = _prep_bronze(raw_df, cfg)
-        write_bronze(framed, table, partition_by=bronze.get("partition_by") or [])
+        write_bronze(
+            framed,
+            table,
+            partition_by=bronze.get("partition_by") or [],
+            mode="append" if incremental else "overwrite",
+        )
         inserted = framed.count()
         run.set_counts(
             processed=processed,
@@ -192,5 +242,6 @@ def ingest_dataset(spark: SparkSession, name: str) -> None:
 
 
 def ingest_all(spark: SparkSession, datasets: Optional[list[str]] = None) -> None:
+    spark.conf.set("spark.databricks.delta.schema.autoMerge.enabled", "true")
     for name in datasets or list_dataset_configs():
         ingest_dataset(spark, name)
