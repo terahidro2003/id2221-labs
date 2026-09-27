@@ -1,4 +1,3 @@
-"""Gold integration: enrich silver trips → integrated_taxi_trips."""
 
 from __future__ import annotations
 

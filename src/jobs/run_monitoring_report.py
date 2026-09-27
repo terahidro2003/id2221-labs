@@ -1,4 +1,3 @@
-"""CLI: print operational Spark SQL answers from pipeline_runs."""
 
 from __future__ import annotations
 

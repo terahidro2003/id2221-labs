@@ -1,4 +1,3 @@
-"""Delta Lake paths and read/write helpers shared by the notebooks."""
 
 from __future__ import annotations
 

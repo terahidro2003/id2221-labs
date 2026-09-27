@@ -1,4 +1,3 @@
-"""Local Spark session with Delta Lake, matching the ingestion notebook setup."""
 
 from __future__ import annotations
 

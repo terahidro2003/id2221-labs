@@ -1,4 +1,3 @@
-"""Shared analytical SQL (Q1–Q6) used by gold products and benchmarks."""
 
 from __future__ import annotations
 

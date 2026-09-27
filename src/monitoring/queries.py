@@ -1,10 +1,3 @@
-"""Spark SQL answers for operational pipeline questions.
-
-Each question returns one row per *source* dataset family
-(taxi_trips, weather, air_quality, taxi_zones, …) with:
-- overall aggregates across all layers (bronze/silver/gold products rolled in)
-- bronze / silver / gold breakdown columns
-"""
 
 from __future__ import annotations
 
@@ -236,7 +229,6 @@ def processing_time_over_executions(spark: SparkSession) -> DataFrame:
 
 
 def _print_time_summary(spark: SparkSession) -> None:
-    """Plain-text list so execution time is obvious even if tables scroll."""
     rows = (
         spark.sql(
             """

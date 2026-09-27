@@ -1,4 +1,3 @@
-"""Bronze ingest: read raw → schema validate → write_bronze."""
 
 from __future__ import annotations
 
@@ -47,7 +46,6 @@ def _expected_from_cfg(cfg: dict[str, Any]) -> dict[str, str]:
 
 
 def _cast_expected(df: DataFrame, expected: dict[str, str]) -> DataFrame:
-    """Cast columns to configured logical types (CSV often lands as string)."""
     out = df
     for col, logical in expected.items():
         if col not in out.columns:

@@ -1,4 +1,3 @@
-"""CLI: generate incremental raw update files."""
 
 from __future__ import annotations
 

@@ -1,4 +1,3 @@
-"""CLI: download raw datasets from Google Drive."""
 
 from __future__ import annotations
 

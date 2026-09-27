@@ -1,4 +1,3 @@
-"""CLI: silver promote (transform + row DQ + write silver/rejects)."""
 
 from __future__ import annotations
 

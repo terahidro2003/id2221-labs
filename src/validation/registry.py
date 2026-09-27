@@ -1,4 +1,3 @@
-"""Rule id → callable registry."""
 
 from __future__ import annotations
 

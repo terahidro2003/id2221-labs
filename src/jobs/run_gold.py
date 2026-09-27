@@ -1,4 +1,3 @@
-"""CLI: gold integrate and/or data products."""
 
 from __future__ import annotations
 

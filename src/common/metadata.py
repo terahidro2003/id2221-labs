@@ -1,4 +1,3 @@
-"""Ingestion / data-product metadata helpers (ported from data_products.ipynb)."""
 
 from __future__ import annotations
 
@@ -28,7 +27,7 @@ def should_refresh(
     target_product_path: Path,
     upstream_paths: Iterable[Path],
 ) -> bool:
-    """True if target missing or any upstream Delta commit is newer."""
+
     target_ts = get_last_commit_timestamp(spark, target_product_path)
     if target_ts == datetime.min:
         return True
@@ -61,7 +60,7 @@ def safe_write_delta(
     schema_ver: str = "1.0",
     data_source: str = "gold/integrated_taxi_trips",
 ) -> Path:
-    """Write Delta with product metadata columns (mergeSchema overwrite)."""
+
     enriched = with_metadata(df, schema_ver=schema_ver, data_source=data_source)
     writer = (
         enriched.write.format("delta")

@@ -1,4 +1,3 @@
-"""Storage layout helpers for gold integrated tables."""
 
 from __future__ import annotations
 

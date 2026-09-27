@@ -1,4 +1,3 @@
-"""Silver promote: transform → row validation → write silver + rejects."""
 
 from __future__ import annotations
 

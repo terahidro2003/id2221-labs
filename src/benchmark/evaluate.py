@@ -1,4 +1,3 @@
-"""Query evaluation helpers (baseline vs data product / AQE)."""
 
 from __future__ import annotations
 

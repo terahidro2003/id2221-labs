@@ -1,4 +1,3 @@
-"""Incremental raw update generators (taxi parquet + weather/AQ CSV)."""
 
 from __future__ import annotations
 
@@ -14,7 +13,6 @@ from src.spark import project_root
 
 
 def estimate_row_count(path: str) -> int:
-    """Estimate rows from file size / average line length (no full parse)."""
     size = os.path.getsize(path)
     if size == 0:
         return 0
@@ -25,7 +23,6 @@ def estimate_row_count(path: str) -> int:
 
 
 def read_csv_tail(path: str, n_rows: int, header: list) -> list:
-    """Return the last n_rows as dicts by seeking from EOF."""
     if n_rows <= 0:
         return []
 
@@ -54,7 +51,6 @@ def read_csv_tail(path: str, n_rows: int, header: list) -> list:
 
 
 def load_recent_csv_window(path: str, update_fraction: float, datetime_builder):
-    """Return header, source row estimate, recent rows, latest timestamp, cutoff."""
     with open(path, "r", newline="", encoding="utf-8-sig") as f:
         header = next(csv.reader(f))
 

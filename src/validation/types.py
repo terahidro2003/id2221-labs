@@ -1,4 +1,3 @@
-"""Shared validation result type."""
 
 from __future__ import annotations
 
@@ -10,7 +9,6 @@ from pyspark.sql import DataFrame
 
 @dataclass
 class ValidationResult:
-    """Schema checks use ok/errors; row checks use good_df/rejects_df."""
 
     ok: bool = True
     errors: list[str] = field(default_factory=list)

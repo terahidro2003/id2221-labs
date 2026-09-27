@@ -1,4 +1,3 @@
-"""Load dataset YAML configs from config/datasets/."""
 
 from __future__ import annotations
 

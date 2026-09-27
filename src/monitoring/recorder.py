@@ -1,4 +1,3 @@
-"""Append-only pipeline run metrics to data/lake/ops/pipeline_runs."""
 
 from __future__ import annotations
 

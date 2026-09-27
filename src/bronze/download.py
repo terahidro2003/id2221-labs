@@ -1,4 +1,3 @@
-"""Download raw datasets from the shared Google Drive folder."""
 
 from __future__ import annotations
 
@@ -40,7 +39,6 @@ def _place_downloaded_file(source: Path, raw: Path, root: Path) -> None:
 
 
 def download_raw(drive_url: str = DRIVE_FOLDER_URL) -> Path:
-    """Download Drive folder and place files under data/raw/."""
     import gdown
 
     root = project_root()

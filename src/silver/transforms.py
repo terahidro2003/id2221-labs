@@ -1,4 +1,3 @@
-"""Silver transforms ported from ingestion.ipynb."""
 
 from __future__ import annotations
 
@@ -56,7 +55,6 @@ def transform_weather(df: DataFrame) -> DataFrame:
 
 
 def _gmt_timestamp_local(date_col: str, time_col: str):
-    """Combine GMT date + time into America/New_York local wall time."""
     combined = F.concat_ws(
         " ",
         F.date_format(F.col(date_col).cast("date"), "yyyy-MM-dd"),

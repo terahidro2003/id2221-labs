@@ -1,5 +1,3 @@
-"""Production-readiness metrics: timing and storage instrumentation."""
-
 from __future__ import annotations
 
 import time
@@ -48,7 +46,6 @@ class StorageSnapshot:
 
     @property
     def platform_overhead_bytes(self) -> int:
-        """Lake storage beyond raw landing zone (medallion + ops)."""
         return self.lake_bytes
 
     def as_mb(self) -> dict[str, float]:
@@ -128,7 +125,6 @@ def _dir_bytes(path: Path, pattern: str = "**/*") -> tuple[int, int]:
 
 
 def snapshot_storage() -> StorageSnapshot:
-    """Measure on-disk footprint of raw + lake layers."""
     snap = StorageSnapshot()
     snap.raw_bytes, n_raw = _dir_bytes(RAW)
     snap.bronze_bytes, n_bronze = _dir_bytes(BRONZE)
@@ -159,12 +155,6 @@ def measure_incremental_update(
     generate: bool = True,
     refresh_products: bool = False,
 ) -> tuple[float, list[PhaseTiming]]:
-    """
-    Wall-clock time for an incremental refresh cycle.
-
-    Phases: generate (optional) → bronze ingest → silver promote → gold integrate
-    → products (optional; usually measured separately as analytical refresh).
-    """
     from src.generators.incremental import run_all_generators
 
     phases: list[PhaseTiming] = []
@@ -197,7 +187,6 @@ def measure_incremental_update(
 
 
 def measure_analytical_refresh(spark: SparkSession, *, force: bool = True) -> float:
-    """Wall-clock time to rebuild gold analytical data products."""
     t0 = time.perf_counter()
     build_products(spark, force=force)
     return time.perf_counter() - t0
@@ -208,11 +197,6 @@ def measure_validation_overhead(
     *,
     datasets: tuple[str, ...] = INCREMENTAL_DATASETS,
 ) -> tuple[float, dict[str, float]]:
-    """
-    Additional wall time spent in DQ checks (schema + row), without writing.
-
-    Forces Spark actions so timing reflects real validation work.
-    """
     by_dataset: dict[str, float] = {}
     total = 0.0
 
@@ -256,11 +240,7 @@ def measure_monitoring_overhead(
     samples: int = 3,
     pipeline_steps_estimate: int = 12,
 ) -> tuple[float, float, float]:
-    """
-    Measure Delta append cost of `pipeline_runs` (monitoring write path).
-
-    Returns (total_sample_sec, per_append_sec, estimated_full_pipeline_sec).
-    """
+    
     OPS.mkdir(parents=True, exist_ok=True)
     now = datetime.now(timezone.utc)
 
@@ -299,7 +279,6 @@ def measure_monitoring_overhead(
 
 
 def print_production_readiness_report(report: ProductionReadinessReport) -> None:
-    """Pretty-print the five production-readiness metrics."""
     d = report.to_dict()
     print("\n" + "=" * 72)
     print("PRODUCTION READINESS METRICS")
@@ -356,11 +335,7 @@ def evaluate_production_readiness(
     measure_monitoring: bool = True,
     monitoring_samples: int = 3,
 ) -> ProductionReadinessReport:
-    """
-    Run instrumentation for the five production-readiness metrics and return a report.
-
-    Designed for notebooks: prints a summary table and returns structured results.
-    """
+   
     report = ProductionReadinessReport()
     report.storage_before = snapshot_storage()
 

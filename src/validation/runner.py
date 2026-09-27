@@ -1,4 +1,3 @@
-"""Run schema (bronze) and row (silver) validation from YAML rule lists."""
 
 from __future__ import annotations
 

@@ -1,4 +1,3 @@
-"""CLI: bronze ingest (schema validate + write bronze)."""
 
 from __future__ import annotations
 

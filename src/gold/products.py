@@ -1,4 +1,3 @@
-"""Gold data products under data/lake/gold/data_products/."""
 
 from __future__ import annotations
 
