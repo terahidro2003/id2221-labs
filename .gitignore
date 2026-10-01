@@ -27,3 +27,22 @@ data/checkpoints/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Generated ML models
+data/models/
+
+# Spark/Delta generated files
+data/**/*.checkpoint/
+data/**/*.crc
+data/**/*.tmp/
+
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Jupyter/VS Code
+.ipynb_checkpoints/
+.vscode/
+
+# macOS
+.DS_Store
