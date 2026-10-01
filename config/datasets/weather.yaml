@@ -1,0 +1,32 @@
+name: weather
+schema_version: "1.0"
+format: csv
+path: weather/weather.csv
+read:
+  header: true
+  # Types come from bronze.validation schema casts (avoids inferSchema full scan).
+  inferSchema: false
+
+bronze:
+  table: weather
+  partition_by: [observation_date]
+  prep: observation_date_from_ymd
+  validation:
+    - rule: schema
+      expected:
+        year: integer
+        month: integer
+        day: integer
+        hour: integer
+        temp: double
+        wspd: double
+
+silver:
+  table: weather
+  primary_key: [station_id, obs_timestamp]
+  partition_by: [observation_date]
+  validation:
+    - rule: not_null
+      columns: [station_id, obs_timestamp]
+    - rule: primary_key
+      columns: [station_id, obs_timestamp]

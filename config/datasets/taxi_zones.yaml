@@ -1,0 +1,29 @@
+name: taxi_zones
+schema_version: "1.0"
+format: csv
+path: taxi_zones
+read:
+  header: true
+  # Types come from bronze.validation schema casts (avoids inferSchema full scan).
+  inferSchema: false
+
+bronze:
+  table: taxi_zones
+  partition_by: []
+  validation:
+    - rule: schema
+      expected:
+        LocationID: integer
+        Borough: string
+        Zone: string
+        service_zone: string
+
+silver:
+  table: taxi_zones
+  primary_key: [location_id]
+  partition_by: []
+  validation:
+    - rule: not_null
+      columns: [location_id]
+    - rule: primary_key
+      columns: [location_id]

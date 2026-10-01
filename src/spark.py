@@ -1,4 +1,3 @@
-"""Local Spark session with Delta Lake, matching the ingestion notebook setup."""
 
 from __future__ import annotations
 
@@ -36,6 +35,12 @@ def _configure_java() -> Path:
     os.environ["PATH"] = f"{java_home / 'bin'}:" + os.environ.get("PATH", "")
     os.environ["SPARK_LOCAL_IP"] = "127.0.0.1"
     os.environ["SPARK_LOCAL_HOSTNAME"] = "localhost"
+    os.environ["PYSPARK_PYTHON"] = sys.executable
+    os.environ["PYSPARK_DRIVER_PYTHON"] = sys.executable
+    # Workers need the repo root to import ``src`` if any Python UDF is used.
+    root = str(project_root())
+    existing = os.environ.get("PYTHONPATH", "")
+    os.environ["PYTHONPATH"] = root if not existing else f"{root}{os.pathsep}{existing}"
     subprocess.run(
         [str(java_home / "bin" / "java"), "-version"],
         check=True,
@@ -54,10 +59,20 @@ def _prefer_venv_site_packages(root: Path) -> None:
     sys.path.insert(0, site)
 
 
+def ensure_runtime(root: Path | None = None) -> Path:
+    """Prefer project ``.venv`` site-packages so pyspark/delta import on non-venv kernels.
+
+    Call this (or import ``src`` after path setup) *before* ``from src.lake import ...``,
+    which pulls in pyspark at module import time.
+    """
+    resolved = Path(root) if root is not None else project_root()
+    _prefer_venv_site_packages(resolved)
+    return resolved
+
+
 def create_spark(app_name: str = "urban-data-platform"):
-    root = project_root()
+    ensure_runtime()
     _configure_java()
-    _prefer_venv_site_packages(root)
 
     from delta import configure_spark_with_delta_pip
     from pyspark import SparkContext
